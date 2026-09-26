@@ -59,6 +59,10 @@ export interface ParsedVisual {
   /** True when the visual has no semantic content (empty shape/image) and
    *  should not normally receive focus. */
   isDecorative: boolean;
+  /** For a `type === "visualGroup"` container only: the author-given group
+   *  name (Selection pane label), e.g. "Regional KPIs". Null for every other
+   *  visual type, and for a group whose name was never set. */
+  groupDisplayName: string | null;
   rawObjects?: any;
 }
 
@@ -563,6 +567,15 @@ function extractVisual(visualContainer: any, idx: number): ParsedVisual {
 
   const visualType = single.visualType ?? single.type ?? "unknown";
 
+  // A visual-group container's author-given name lives on the raw PBIR JSON
+  // (`visualGroup.displayName`), carried through unchanged as rawVisual by
+  // the PBIR split-file loader. It has no equivalent in objects/vcObjects,
+  // so it can't be picked up by the generic title extraction above.
+  const groupDisplayName =
+    String(visualType).toLowerCase() === "visualgroup"
+      ? (findText(visualContainer.rawVisual?.visualGroup?.displayName) ?? null)
+      : null;
+
   // Detect human-readable text inside shapes/textboxes/images. Power BI
   // stores rich-text content as runs of `textRuns[].value` inside
   // `paragraphs[]`, which can live under several object keys depending on
@@ -694,6 +707,7 @@ function extractVisual(visualContainer: any, idx: number): ParsedVisual {
     tabOrderIndex: tabOrderState.tabOrderIndex,
     isHiddenFromTabOrder: tabOrderState.isHiddenFromTabOrder,
     isDecorative,
+    groupDisplayName,
     rawObjects: { objects, vcObjects, config: cfg, visualContainer },
   };
 }

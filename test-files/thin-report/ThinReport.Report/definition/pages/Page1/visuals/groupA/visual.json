@@ -1,0 +1,9 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name": "groupA",
+  "position": { "x": 20, "y": 20, "z": 0, "width": 400, "height": 300, "tabOrder": -1 },
+  "visualGroup": {
+    "displayName": "KPI Group",
+    "groupMode": "ScaleMode"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name": "groupDefaultName",
+  "position": { "x": 460, "y": 20, "z": 3, "width": 300, "height": 200, "tabOrder": -1 },
+  "visualGroup": {
+    "displayName": "Group 1",
+    "groupMode": "ScaleMode"
+  },
+  "visualContainerObjects": {
+    "general": [
+      { "properties": { "altText": { "expr": { "Literal": { "Value": "'Image'" } } } } }
+    ]
+  }
+}

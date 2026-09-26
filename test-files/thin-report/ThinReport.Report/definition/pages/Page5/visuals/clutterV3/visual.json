@@ -1,0 +1,6 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name": "clutterV3",
+  "position": { "x": 100, "y": 100, "z": 2, "width": 300, "height": 300, "tabOrder": 2 },
+  "visual": { "visualType": "pieChart" }
+}

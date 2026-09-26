@@ -106,6 +106,16 @@ async function synthesiseLayoutFromSplitFiles(
         continue;
       }
       const pos = v.position ?? {};
+      // A visual-group container (a layout grouping of other visuals) has a
+      // `visualGroup` key instead of `visual`. It isn't a renderable chart -
+      // it still gets its own alt-text field in Desktop (Format pane →
+      // Properties), stored the same way any other visual container's is
+      // (`visualContainerObjects.general[0].properties.altText`, at the top
+      // level here since there's no nested `visual` object to hold it) - but
+      // it must be tagged with its own type rather than falling through to
+      // `v` and resolving to "unknown", which the rule engine can't
+      // distinguish from a genuine unrecognised visual.
+      const isGroup = !!v.visualGroup && !v.visual;
       const visual = v.visual ?? v;
       // Modern PBIR stores tab order at a few possible locations. Forward all
       // of them so the PBIX rule engine can recognise authored / hidden state.
@@ -118,7 +128,7 @@ async function synthesiseLayoutFromSplitFiles(
         null;
       const single = {
         name: v.name ?? visual.name,
-        visualType: visual.visualType ?? visual.type ?? "unknown",
+        visualType: isGroup ? "visualGroup" : (visual.visualType ?? visual.type ?? "unknown"),
         objects: visual.objects ?? {},
         vcObjects: visual.vcObjects ?? visual.visualContainerObjects ?? {},
         projections: visual.projections ?? visual.query?.queryState ?? {},

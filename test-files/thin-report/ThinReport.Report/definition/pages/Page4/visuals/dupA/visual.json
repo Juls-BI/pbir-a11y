@@ -1,0 +1,8 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name": "dupA",
+  "position": { "x": 20, "y": 20, "z": 0, "width": 200, "height": 150, "tabOrder": 5 },
+  "visual": {
+    "visualType": "barChart"
+  }
+}

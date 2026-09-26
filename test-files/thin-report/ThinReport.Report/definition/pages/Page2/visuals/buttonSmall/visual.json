@@ -1,0 +1,8 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name": "buttonSmall",
+  "position": { "x": 20, "y": 380, "z": 0, "width": 20, "height": 20, "tabOrder": 18 },
+  "visual": {
+    "visualType": "actionButton"
+  }
+}

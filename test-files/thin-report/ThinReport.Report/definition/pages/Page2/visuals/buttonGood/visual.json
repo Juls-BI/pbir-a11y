@@ -1,0 +1,8 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name": "buttonGood",
+  "position": { "x": 100, "y": 380, "z": 0, "width": 50, "height": 50, "tabOrder": 19 },
+  "visual": {
+    "visualType": "actionButton"
+  }
+}

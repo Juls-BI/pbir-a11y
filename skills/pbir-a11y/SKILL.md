@@ -38,7 +38,9 @@ The check only tells you alt text is missing or empty- it does not (yet) score t
 - Keep it under ~150 characters for cards/simple visuals, ~300 for complex multi-measure visuals.
 - If the visual's story changes with filters/slicers, prefer a DAX measure driving the alt text over a static string, so it stays accurate as the user interacts with the report. Ask the user before doing this if it's not obvious which measure should drive it - same rule as never guessing alt text content.
 
-These four templates cover most cases:
+**Visual groups are the exception to all of the above.** A flagged `altText` issue on a "Visual group" visual isn't a chart - it's a layout container - so none of the templates below apply, and Power BI only offers it a *static* alt-text field (Format pane → Properties): there's no measure-binding option for it, so never suggest one. Instead, describe what the group represents and roughly how many items it holds, e.g. "KPI summary group with three cards showing regional sales totals." Don't state an exact count - it goes stale the moment a visual is added to or removed from the group. Elements *inside* a group still get the full guidance above for their own alt text; only the group container itself follows this exception.
+
+These four templates cover most cases (chart-type visuals only - see the visual-group exception above):
 
 | Pattern | Shape |
 |---|---|

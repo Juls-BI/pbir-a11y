@@ -1,0 +1,8 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name": "slicerNoTitle",
+  "position": { "x": 240, "y": 20, "z": 0, "width": 150, "height": 300, "tabOrder": 11 },
+  "visual": {
+    "visualType": "slicer"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name": "clutterV2",
+  "position": { "x": 50, "y": 50, "z": 1, "width": 300, "height": 300, "tabOrder": 1 },
+  "visual": { "visualType": "lineChart" }
+}

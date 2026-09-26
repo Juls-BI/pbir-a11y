@@ -1,6 +1,6 @@
 {
   "name": "pbir-a11y",
-  "version": "0.3.2",
+  "version": "0.4.1",
   "description": "Accessibility checks for Power BI PBIP/PBIR projects, for use by humans and AI coding agents during development.",
   "license": "PolyForm-Shield-1.0.0",
   "type": "commonjs",
@@ -14,16 +14,22 @@
   "scripts": {
     "build": "tsc -p .",
     "dev": "ts-node src/cli.ts",
-    "start": "node dist/cli.js"
+    "start": "node dist/cli.js",
+    "lint": "eslint .",
+    "test": "node --require ts-node/register --test test-files/**/*.test.ts",
+    "coverage": "node --require ts-node/register --test --experimental-test-coverage --test-coverage-include=\"src/lib/**/*.ts\" --test-coverage-lines=60 --test test-files/**/*.test.ts"
   },
   "dependencies": {
     "commander": "^12.1.0",
+    "docx": "^9.6.1",
     "jszip": "^3.10.1"
   },
   "devDependencies": {
-    "typescript": "^5.5.4",
+    "@types/node": "^20.14.10",
+    "eslint": "^10.10.0",
     "ts-node": "^10.9.2",
-    "@types/node": "^20.14.10"
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.70.0"
   },
   "engines": {
     "node": ">=18"

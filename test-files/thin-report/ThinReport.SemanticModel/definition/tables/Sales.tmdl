@@ -1,0 +1,36 @@
+table Sales
+
+	/// Total sales amount across all fake rows - used by the card visuals in the report fixture
+	measure 'Total Sales' = SUM(Sales[Amount])
+		formatString: $#,##0
+
+	column OrderDate
+		dataType: dateTime
+		formatString: Long Date
+		sourceColumn: OrderDate
+
+	column Category
+		dataType: string
+		sourceColumn: Category
+
+	column Amount
+		dataType: double
+		summarizeBy: none
+		sourceColumn: Amount
+
+	partition Sales = m
+		mode: import
+		source =
+			let
+				Source = #table(
+					{"OrderDate", "Category", "Amount"},
+					{
+						{#date(2024, 1, 5), "North", 1200},
+						{#date(2024, 1, 12), "South", 950},
+						{#date(2024, 2, 3), "North", 1400},
+						{#date(2024, 2, 20), "East", 800},
+						{#date(2024, 3, 1), "West", 1100}
+					}
+				)
+			in
+				Source

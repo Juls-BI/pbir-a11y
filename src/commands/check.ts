@@ -2,7 +2,14 @@ import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import type { Command } from "commander";
 import { loadPbirFromFolder } from "../io/loadFromFolder";
-import { analyze, describeVisual, ALL_CHECKS, type Category, type Severity } from "../lib/rulesEngine";
+import {
+  analyze,
+  describeVisual,
+  ALL_CHECKS,
+  type Category,
+  type CheckSelection,
+  type Severity,
+} from "../lib/rulesEngine";
 import { PBIRParseError } from "../lib/pbirParser";
 import { buildAccessibilityDocx } from "../lib/docxReport";
 
@@ -67,8 +74,8 @@ export function registerCheckCommand(program: Command): void {
             process.exitCode = 2;
             return;
           }
-          for (const key of Object.keys(selection) as Category[]) {
-            (selection as any)[key] = key === cat;
+          for (const key of Object.keys(selection) as (keyof CheckSelection)[]) {
+            selection[key] = key === cat;
           }
         }
 

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name": "barSmallFont",
+  "position": { "x": 20, "y": 200, "z": 0, "width": 200, "height": 150, "tabOrder": 14 },
+  "visual": {
+    "visualType": "barChart",
+    "objects": {
+      "labels": [
+        { "properties": { "fontSize": { "expr": { "Literal": { "Value": "8D" } } } } }
+      ]
+    }
+  }
+}

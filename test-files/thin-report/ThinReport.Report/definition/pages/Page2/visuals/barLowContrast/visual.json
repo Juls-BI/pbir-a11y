@@ -1,0 +1,19 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name": "barLowContrast",
+  "position": { "x": 410, "y": 200, "z": 0, "width": 200, "height": 150, "tabOrder": 16 },
+  "visual": {
+    "visualType": "barChart",
+    "objects": {
+      "title": [
+        {
+          "properties": {
+            "show": { "expr": { "Literal": { "Value": "true" } } },
+            "text": { "expr": { "Literal": { "Value": "'Low contrast title'" } } },
+            "fontColor": { "solid": { "color": { "expr": { "Literal": { "Value": "'#CCCCCC'" } } } } }
+          }
+        }
+      ]
+    }
+  }
+}

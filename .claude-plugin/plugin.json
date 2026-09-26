@@ -1,6 +1,6 @@
 {
   "name": "pbir-a11y",
-  "version": "0.2.0",
+  "version": "0.4.1",
   "description": "Accessibility checks for Power BI PBIP/PBIR projects — contrast, alt text, tab order, target size, page/visual titles, clutter. Runs on a project folder, usable from a terminal or by an agent editing report JSON.",
   "author": {
     "name": "Juliana Smith"

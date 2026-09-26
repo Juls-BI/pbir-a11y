@@ -1,0 +1,14 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name": "groupGoodAlt",
+  "position": { "x": 20, "y": 340, "z": 4, "width": 400, "height": 200, "tabOrder": -1 },
+  "visualGroup": {
+    "displayName": "Sales Overview",
+    "groupMode": "ScaleMode"
+  },
+  "visualContainerObjects": {
+    "general": [
+      { "properties": { "altText": { "expr": { "Literal": { "Value": "'Sales overview group with cards showing total revenue and unit count.'" } } } } }
+    ]
+  }
+}

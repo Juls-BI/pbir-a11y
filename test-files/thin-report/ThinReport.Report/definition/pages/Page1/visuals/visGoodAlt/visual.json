@@ -1,0 +1,27 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name": "visGoodAlt",
+  "parentGroupName": "groupA",
+  "position": { "x": 30, "y": 30, "z": 1, "width": 200, "height": 120, "tabOrder": 1 },
+  "visual": {
+    "visualType": "cardVisual",
+    "query": {
+      "queryState": {
+        "Data": {
+          "projections": [
+            {
+              "field": { "Measure": { "Expression": { "SourceRef": { "Entity": "Sales" } }, "Property": "Total Sales" } },
+              "queryRef": "Sales.Total Sales",
+              "nativeQueryRef": "Total Sales"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "general": [
+        { "properties": { "altText": { "expr": { "Literal": { "Value": "'Total sales card showing the sum of fake Amount values across all rows'" } } } } }
+      ]
+    }
+  }
+}

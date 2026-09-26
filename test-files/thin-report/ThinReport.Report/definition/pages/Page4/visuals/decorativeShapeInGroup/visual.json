@@ -1,0 +1,9 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.9.0/schema.json",
+  "name": "decorativeShapeInGroup",
+  "parentGroupName": "groupA",
+  "position": { "x": 580, "y": 20, "z": 0, "width": 100, "height": 100, "tabOrder": 12 },
+  "visual": {
+    "visualType": "shape"
+  }
+}

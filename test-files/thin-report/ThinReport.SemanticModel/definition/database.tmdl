@@ -1,0 +1,4 @@
+database ThinReport
+	compatibilityLevel: 1567
+	compatibilityMode: powerBI
+	language: 1033
