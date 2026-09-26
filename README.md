@@ -216,15 +216,6 @@ changed vs. untouched within it)  -  `lint` and the file-size guideline
 don't apply to it, and `npm run coverage`'s line-coverage gate is scoped
 specifically to it, not excluded from it.
 
-## Roadmap ideas
-
-- `pbir-a11y fix`: auto-correct the deterministic issues (bump undersized
-  targets, reorder duplicate tab indices) the way `pbir.tools set -f` does
-  for general formatting.
-- `pbir-a11y watch`: re-run checks on file save during active development.
-- PBIX support in `src/io/` for auditing shipped files, reusing
-  `pbixParser.ts` (already ported, untouched).
-
 ## License
 
 [PolyForm Shield License 1.0.0](https://github.com/Juls-BI/pbir-a11y/blob/main/LICENSE)
