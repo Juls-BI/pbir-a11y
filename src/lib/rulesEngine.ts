@@ -203,6 +203,22 @@ function isVisualGroup(v: ParsedVisual): boolean {
   return (v.type ?? "").toLowerCase().trim() === "visualgroup";
 }
 
+// Visual types that carry no data of their own and shouldn't be counted as a
+// "data visualisation" for clutter, or (for the shape/textbox/image subset)
+// serve as an overlay "base" for tab-order layout inference. A visual-group
+// container's own box fully contains its children's boxes by construction,
+// so counting it here would double-count every visual inside it and produce
+// phantom overlaps - it must never be treated as a data visual.
+const NON_DATA_PATTERNS = ["shape", "textbox", "image", "button", "navigator", "slicer"];
+const NON_DATA_EXACT = new Set(["text", "label", "header", "background", "visualgroup"]);
+
+function isDataVisual(v: ParsedVisual): boolean {
+  const t = (v.type ?? "").toLowerCase().trim();
+  if (!t || t === "unknown") return false;
+  if (NON_DATA_EXACT.has(t)) return false;
+  return !NON_DATA_PATTERNS.some((p) => t.includes(p));
+}
+
 // "Pure decoration" = a shape/textbox/image visual with no text inside it.
 // These are visual scaffolding (dividers, background panels, decorative
 // images) and don't need alt text. As soon as a shape carries text, screen
@@ -585,39 +601,6 @@ export interface TabOrderEligibility {
   hidden: ParsedVisual[];
 }
 
-export interface TabOrderDebugVisual {
-  id: string;
-  label: string;
-  tabOrderIndex: number;
-  x: number;
-  y: number;
-  height: number;
-  rowIndex: number;
-}
-
-export interface TabOrderDebugRow {
-  rowIndex: number;
-  yStart: number;
-  yEnd: number;
-  visualIds: string[];
-}
-
-export interface TabOrderFlaggedPair {
-  before: TabOrderDebugVisual;
-  after: TabOrderDebugVisual;
-}
-
-export interface TabOrderReadingOrderDebug {
-  rowTol: number;
-  medianHeight: number;
-  heights: number[];
-  rows: TabOrderDebugRow[];
-  authored: TabOrderDebugVisual[];
-  expectedSeq: TabOrderDebugVisual[];
-  actualSeq: TabOrderDebugVisual[];
-  flaggedPairs: TabOrderFlaggedPair[];
-}
-
 export function getTabOrderEligibleVisuals(p: ParsedPage): TabOrderEligibility {
   const hidden = p.visuals.filter((v) => v.isHiddenFromTabOrder);
   const visible = p.visuals.filter((v) => !v.isHiddenFromTabOrder);
@@ -635,134 +618,272 @@ function visualHeight(v: ParsedVisual): number {
   return Number.isFinite(legacyHeight) && legacyHeight > 0 ? legacyHeight : 0;
 }
 
-function median(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const mid = Math.floor(values.length / 2);
-  if (values.length % 2 === 1) return values[mid];
-  return (values[mid - 1] + values[mid]) / 2;
+function visualWidth(v: ParsedVisual): number {
+  const width = Number(v.width);
+  if (Number.isFinite(width) && width > 0) return width;
+  const legacyWidth = Number(v.w);
+  return Number.isFinite(legacyWidth) && legacyWidth > 0 ? legacyWidth : 0;
 }
 
-function summariseTabOrderVisual(
-  entry: { v: ParsedVisual; t: number },
-  rowOf: Map<string, number>,
-): TabOrderDebugVisual {
-  return {
-    id: entry.v.id,
-    label: describeVisual(entry.v),
-    tabOrderIndex: entry.t,
-    x: entry.v.x,
-    y: entry.v.y,
-    height: visualHeight(entry.v),
-    rowIndex: rowOf.get(entry.v.id) ?? 0,
-  };
+function visualArea(v: ParsedVisual): number {
+  return visualWidth(v) * visualHeight(v);
 }
 
-function clusterTabOrderRows(
-  authored: { v: ParsedVisual; t: number }[],
-  rowTol: number,
-): { rows: TabOrderDebugRow[]; rowOf: Map<string, number> } {
-  const yValues = [...new Set(authored.map((entry) => entry.v.y).filter((value) => Number.isFinite(value)))]
-    .sort((a, b) => a - b);
-  const bands: Array<{ yStart: number; yEnd: number; total: number; count: number }> = [];
+function intersectArea(a: ParsedVisual, b: ParsedVisual): number {
+  const x1 = Math.max(a.x, b.x);
+  const y1 = Math.max(a.y, b.y);
+  const x2 = Math.min(a.x + visualWidth(a), b.x + visualWidth(b));
+  const y2 = Math.min(a.y + visualHeight(a), b.y + visualHeight(b));
+  if (x2 <= x1 || y2 <= y1) return 0;
+  return (x2 - x1) * (y2 - y1);
+}
 
-  for (const y of yValues) {
-    const last = bands[bands.length - 1];
-    if (!last) {
-      bands.push({ yStart: y, yEnd: y, total: y, count: 1 });
-      continue;
-    }
-    const centre = last.total / last.count;
-    if (Math.abs(y - centre) <= rowTol) {
-      last.yStart = Math.min(last.yStart, y);
-      last.yEnd = Math.max(last.yEnd, y);
-      last.total += y;
-      last.count += 1;
-    } else {
-      bands.push({ yStart: y, yEnd: y, total: y, count: 1 });
-    }
+// Groups the visuals sharing a sibling level: the page's top-level visuals
+// (key null  -  a group container itself appears here, as the single stop it
+// represents at this level), plus one entry per group id for that group's
+// direct children. Because parentGroupId already points straight at the
+// immediate parent (see resolveAbsolutePositions/pbixParser.ts), a simple
+// group-by is enough to get every nesting level at once - a nested group's
+// children are keyed by that nested group's own id, which is a different
+// bucket from its parent's, with no separate recursion needed.
+function siblingLevels<T>(items: T[], keyOf: (item: T) => string | null): Map<string | null, T[]> {
+  const levels = new Map<string | null, T[]>();
+  for (const item of items) {
+    const key = keyOf(item) ?? null;
+    const list = levels.get(key) ?? [];
+    list.push(item);
+    levels.set(key, list);
   }
+  return levels;
+}
 
-  const rows = bands.map<TabOrderDebugRow>((band, index) => ({
-    rowIndex: index + 1,
-    yStart: band.yStart,
-    yEnd: band.yEnd,
-    visualIds: [],
-  }));
-  const rowOf = new Map<string, number>();
+// Only a real data visual, a slicer, or a button can be the "base" an
+// overlaid visual sits on top of - a shape, image or text box never counts,
+// so a full-bleed background rectangle can't swallow every other visual on
+// the page into one giant "overlay group".
+function canBeOverlayBase(v: ParsedVisual): boolean {
+  return isDataVisual(v) || typeIs(v, "slicer", "button");
+}
 
-  for (const entry of authored) {
-    let nearestRow = rows[0]?.rowIndex ?? 1;
-    let nearestDistance = Number.POSITIVE_INFINITY;
-    rows.forEach((row) => {
-      const centre = (row.yStart + row.yEnd) / 2;
-      const distance = Math.abs(entry.v.y - centre);
-      if (distance < nearestDistance) {
-        nearestDistance = distance;
-        nearestRow = row.rowIndex;
+// A visual counts as an "overlay" of another when at least 90% of its own
+// area sits inside that other visual's box. When a visual qualifies as an
+// overlay of more than one eligible base, it's attached to the smallest one
+// (the most specific container it sits on top of).
+function computeOverlays(items: ParsedVisual[]): { overlaysByBase: Map<string, ParsedVisual[]>; overlayIds: Set<string> } {
+  const overlaysByBase = new Map<string, ParsedVisual[]>();
+  const overlayIds = new Set<string>();
+  for (const v of items) {
+    const vArea = visualArea(v);
+    if (vArea <= 0) continue;
+    let bestBase: ParsedVisual | null = null;
+    let bestBaseArea = Number.POSITIVE_INFINITY;
+    for (const base of items) {
+      if (base.id === v.id || !canBeOverlayBase(base)) continue;
+      const baseArea = visualArea(base);
+      if (baseArea <= 0) continue;
+      const overlapRatio = intersectArea(v, base) / vArea;
+      if (overlapRatio >= 0.9 && baseArea < bestBaseArea) {
+        bestBase = base;
+        bestBaseArea = baseArea;
       }
-    });
-    rowOf.set(entry.v.id, nearestRow);
-    rows[nearestRow - 1]?.visualIds.push(entry.v.id);
+    }
+    if (bestBase) {
+      overlayIds.add(v.id);
+      const list = overlaysByBase.get(bestBase.id) ?? [];
+      list.push(v);
+      overlaysByBase.set(bestBase.id, list);
+    }
   }
+  // Multiple overlays on the same base: top-to-bottom, then left-to-right.
+  for (const list of overlaysByBase.values()) {
+    list.sort((a, b) => a.y - b.y || a.x - b.x);
+  }
+  return { overlaysByBase, overlayIds };
+}
 
+// Groups non-overlay visuals into rows for the "expected" reading order.
+// Walk top to bottom; each unassigned visual starts a new row as that row's
+// anchor, and another visual joins ONLY if its vertical overlap with the
+// anchor is at least 50% of the shorter of the two heights - comparison is
+// always against the row's anchor, never chained transitively through
+// other row members, so a tall visual can't drag in a short one two rows
+// down via an intermediate.
+function buildRows(items: ParsedVisual[]): ParsedVisual[][] {
+  const remaining = [...items].sort((a, b) => a.y - b.y || a.x - b.x);
+  const used = new Set<string>();
+  const rows: ParsedVisual[][] = [];
+  for (const anchor of remaining) {
+    if (used.has(anchor.id)) continue;
+    const anchorHeight = visualHeight(anchor);
+    const row = [anchor];
+    used.add(anchor.id);
+    for (const other of remaining) {
+      if (used.has(other.id)) continue;
+      const otherHeight = visualHeight(other);
+      const shorter = Math.min(anchorHeight, otherHeight);
+      if (shorter <= 0) continue;
+      const overlap = Math.max(0, Math.min(anchor.y + anchorHeight, other.y + otherHeight) - Math.max(anchor.y, other.y));
+      if (overlap / shorter >= 0.5) {
+        row.push(other);
+        used.add(other.id);
+      }
+    }
+    row.sort((a, b) => a.x - b.x || a.y - b.y);
+    rows.push(row);
+  }
+  // `remaining` is already y-ordered and each row's anchor is the first
+  // unused visual encountered in that order, so rows are already in top-to-
+  // bottom order by anchor - no re-sort needed.
+  return rows;
+}
+
+// Builds the layout-inferred reading order for one sibling level: overlays
+// removed from row-clustering, then re-inserted immediately after their base.
+function buildExpectedOrder(items: ParsedVisual[]): ParsedVisual[] {
+  const { overlaysByBase, overlayIds } = computeOverlays(items);
+  const base = items.filter((v) => !overlayIds.has(v.id));
+  const rows = buildRows(base);
+  const ordered: ParsedVisual[] = [];
   for (const row of rows) {
-    row.visualIds.sort((a, b) => {
-      const visualA = authored.find((entry) => entry.v.id === a)?.v;
-      const visualB = authored.find((entry) => entry.v.id === b)?.v;
-      return (visualA?.x ?? 0) - (visualB?.x ?? 0);
+    for (const v of row) {
+      ordered.push(v);
+      const overlays = overlaysByBase.get(v.id);
+      if (overlays) ordered.push(...overlays);
+    }
+  }
+  return ordered;
+}
+
+// The authored reading order for one sibling level. Sorts by tabOrderRank
+// ASCENDING (1 = first) - NOT by tabOrderIndex/`.t`, and NOT descending.
+//
+// tabOrderIndex is ambiguous: normalisePowerBiLayoutTabOrder (pbixParser.ts)
+// rewrites it into a 1..N rank (ascending, 1 = first) for pages whose raw
+// values are all unique, non-negative multiples of 1000, but leaves it as
+// the untouched raw value (descending, largest = first) otherwise - the same
+// field means two different, opposite-direction things depending on which
+// case applies, and nothing here can tell which one it's looking at from the
+// number alone. tabOrderRank (see its doc comment on ParsedVisual, and
+// assignTabOrderRanks in pbixParser.ts) exists specifically to remove that
+// ambiguity: it's always "ascending, 1 = first", computed once per page from
+// the pristine raw value before normalisePowerBiLayoutTabOrder runs - so the
+// exact same comparison (ascending by tabOrderRank) is correct for both the
+// small-plain-numbers case (e.g. 25/20/15/10/5/0) and the multiples-of-1000
+// case (e.g. 2000/1000/0), with no special-casing for magnitude.
+function buildAuthoredOrder(entries: { v: ParsedVisual; t: number }[]): ParsedVisual[] {
+  return [...entries]
+    .sort((a, b) => (a.v.tabOrderRank ?? Number.POSITIVE_INFINITY) - (b.v.tabOrderRank ?? Number.POSITIVE_INFINITY))
+    .map((e) => e.v);
+}
+
+function sameVisualOrder(a: ParsedVisual[], b: ParsedVisual[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((v, i) => v.id === b[i]?.id);
+}
+
+const MAX_SUGGESTED_ORDER_ITEMS = 12;
+
+function formatSuggestedOrder(order: ParsedVisual[]): string {
+  const shown = order.slice(0, MAX_SUGGESTED_ORDER_ITEMS);
+  const list = shown.map((v, i) => `${i + 1}. ${describeVisual(v)}`).join(", ");
+  const remaining = order.length - shown.length;
+  return remaining > 0 ? `${list}, and ${remaining} more` : list;
+}
+
+/** Per-sibling-level breakdown behind the "tab order may not follow the
+ *  layout" finding below - exposed for a future `explain`/debug CLI command,
+ *  not currently used elsewhere in this codebase. Superseded the old
+ *  page-wide getTabOrderReadingOrderDebug/clusterTabOrderRows, which had no
+ *  group scoping and sorted authored order ascending (the wrong direction -
+ *  see buildAuthoredOrder above) and were both unused (grep-confirmed) - removed
+ *  rather than kept, since this replaces them fully. */
+export interface TabOrderLevelDebug {
+  /** null = the page's top-level visuals; otherwise the id of the group
+   *  container whose direct children this level covers. */
+  groupId: string | null;
+  groupLabel: string | null;
+  // tabOrderRank is the field the ordering above is actually computed from
+  // (ascending, 1 = first - see buildAuthoredOrder); tabOrderIndex is
+  // included alongside only as the raw/normalised value a person might
+  // recognise from the Selection pane or a JSON dump, and must NOT be used
+  // to re-derive order (see its doc comment on ParsedVisual).
+  authoredOrder: { id: string; label: string; tabOrderIndex: number; tabOrderRank: number }[];
+  expectedOrder: { id: string; label: string; tabOrderIndex: number; tabOrderRank: number }[];
+  overlays: { visualId: string; label: string; baseId: string }[];
+  rows: string[][];
+  matchesLayout: boolean;
+}
+
+export function getTabOrderLayoutDebug(p: ParsedPage): TabOrderLevelDebug[] {
+  const { authored } = getTabOrderEligibleVisuals(p);
+  const levels = siblingLevels(authored, (e) => e.v.parentGroupId ?? null);
+  const out: TabOrderLevelDebug[] = [];
+  for (const [groupId, entries] of levels) {
+    if (entries.length < 2) continue;
+    const items = entries.map((e) => e.v);
+    const { overlaysByBase, overlayIds } = computeOverlays(items);
+    const rows = buildRows(items.filter((v) => !overlayIds.has(v.id)));
+    const authoredOrder = buildAuthoredOrder(entries);
+    const expectedOrder = buildExpectedOrder(items);
+    const groupVisual = groupId ? p.visuals.find((v) => v.id === groupId) ?? null : null;
+    const overlays: TabOrderLevelDebug["overlays"] = [];
+    for (const [baseId, list] of overlaysByBase) {
+      for (const ov of list) overlays.push({ visualId: ov.id, label: describeVisual(ov), baseId });
+    }
+    out.push({
+      groupId,
+      groupLabel: groupVisual ? describeVisual(groupVisual) : null,
+      authoredOrder: authoredOrder.map((v) => ({ id: v.id, label: describeVisual(v), tabOrderIndex: v.tabOrderIndex as number, tabOrderRank: v.tabOrderRank as number })),
+      expectedOrder: expectedOrder.map((v) => ({ id: v.id, label: describeVisual(v), tabOrderIndex: v.tabOrderIndex as number, tabOrderRank: v.tabOrderRank as number })),
+      overlays,
+      rows: rows.map((row) => row.map((v) => v.id)),
+      matchesLayout: sameVisualOrder(authoredOrder, expectedOrder),
+    });
+  }
+  return out;
+}
+
+// New finding (advisory only, see below): for each sibling level with at
+// least two authored visuals, compare the authored tab sequence against the
+// layout-inferred one and flag the first point where they diverge.
+function tabOrderLayoutMismatchIssues(p: ParsedPage): Issue[] {
+  const { authored } = getTabOrderEligibleVisuals(p);
+  const levels = siblingLevels(authored, (e) => e.v.parentGroupId ?? null);
+  const issues: Issue[] = [];
+
+  for (const [groupId, entries] of levels) {
+    // Nothing to compare with fewer than two authored visuals at this level.
+    if (entries.length < 2) continue;
+
+    const authoredOrder = buildAuthoredOrder(entries);
+    const expectedOrder = buildExpectedOrder(entries.map((e) => e.v));
+    if (sameVisualOrder(authoredOrder, expectedOrder)) continue;
+
+    // authoredOrder and expectedOrder are always permutations of the exact
+    // same visual set (both built from `entries`), so findIndex is
+    // guaranteed to find a differing position here - sameVisualOrder just
+    // returned false, and equal-length permutations that aren't identical
+    // must differ somewhere.
+    const mismatchIndex = authoredOrder.findIndex((v, i) => expectedOrder[i]?.id !== v.id);
+    const authoredVisual = authoredOrder[mismatchIndex];
+    const expectedVisual = expectedOrder[mismatchIndex];
+    const groupVisual = groupId ? p.visuals.find((v) => v.id === groupId) ?? null : null;
+    const levelSuffix = groupVisual ? ` inside group "${groupVisual.groupDisplayName?.trim() || "unnamed"}"` : "";
+
+    issues.push({
+      id: `${p.id}-tab-layout-mismatch${groupVisual ? `-${groupVisual.id}` : ""}`,
+      category: "tabOrder",
+      severity: "warn",
+      title: `Tab order may not follow the layout${levelSuffix}`,
+      detail: `Position ${mismatchIndex + 1} is "${describeVisual(authoredVisual)}" but the layout suggests "${describeVisual(expectedVisual)}".`,
+      why: "WCAG 2.4.3 (Focus Order) expects the tab sequence to follow a meaningful reading order. This expected order is inferred from visual position only  -  only the report's author truly knows the intended reading order, so treat this as advisory, not a hard rule.",
+      fix: `In Power BI Desktop: View → Selection Pane → Tab Order. Suggested order: ${formatSuggestedOrder(expectedOrder)}.`,
+      pageId: p.id,
+      visualId: groupVisual ? groupVisual.id : undefined,
     });
   }
 
-  return { rows, rowOf };
-}
-
-export function getTabOrderReadingOrderDebug(p: ParsedPage): TabOrderReadingOrderDebug {
-  const { authored } = getTabOrderEligibleVisuals(p);
-  const heights = authored
-    .map((entry) => visualHeight(entry.v))
-    .filter((height) => height > 0)
-    .sort((a, b) => a - b);
-  const medianHeight = median(heights) ?? 60;
-  const pageCap = p.height > 0 ? Math.max(64, p.height * 0.12) : Number.POSITIVE_INFINITY;
-  const rowTol = Math.max(64, Math.min(medianHeight * 0.75, pageCap));
-  const { rows, rowOf } = clusterTabOrderRows(authored, rowTol);
-  const expectedEntries = [...authored].sort((a, b) => {
-    const rowA = rowOf.get(a.v.id) ?? 0;
-    const rowB = rowOf.get(b.v.id) ?? 0;
-    if (rowA !== rowB) return rowA - rowB;
-    return a.v.x - b.v.x;
-  });
-  const actualEntries = [...authored].sort((a, b) => a.t - b.t || a.v.x - b.v.x);
-  const expectedIndexById = new Map(expectedEntries.map((entry, index) => [entry.v.id, index]));
-  const flaggedPairs: TabOrderFlaggedPair[] = [];
-
-  for (let i = 0; i < actualEntries.length; i += 1) {
-    for (let j = i + 1; j < actualEntries.length; j += 1) {
-      const before = actualEntries[i];
-      const after = actualEntries[j];
-      const beforeRow = rowOf.get(before.v.id) ?? 0;
-      const afterRow = rowOf.get(after.v.id) ?? 0;
-      const beforeExpectedIndex = expectedIndexById.get(before.v.id) ?? 0;
-      const afterExpectedIndex = expectedIndexById.get(after.v.id) ?? 0;
-      if (beforeRow > afterRow && beforeExpectedIndex > afterExpectedIndex) {
-        flaggedPairs.push({
-          before: summariseTabOrderVisual(before, rowOf),
-          after: summariseTabOrderVisual(after, rowOf),
-        });
-      }
-    }
-  }
-
-  return {
-    rowTol,
-    medianHeight,
-    heights,
-    rows,
-    authored: authored.map((entry) => summariseTabOrderVisual(entry, rowOf)),
-    expectedSeq: expectedEntries.map((entry) => summariseTabOrderVisual(entry, rowOf)),
-    actualSeq: actualEntries.map((entry) => summariseTabOrderVisual(entry, rowOf)),
-    flaggedPairs,
-  };
+  return issues;
 }
 
 function tabOrderRulesForPage(p: ParsedPage): Issue[] {
@@ -771,6 +892,8 @@ function tabOrderRulesForPage(p: ParsedPage): Issue[] {
   const decorative = p.visuals.filter((v) => v.isDecorative);
 
   // 1. Decorative-but-focusable suggestions. Skip when author already set -1.
+  //    Per-visual, not scoped by sibling level  -  a group itself is never
+  //    decorative, so this never needs to reason about nesting.
   for (const v of decorative) {
     if (!v.isHiddenFromTabOrder && v.tabOrderIndex != null) {
       issues.push({
@@ -787,26 +910,38 @@ function tabOrderRulesForPage(p: ParsedPage): Issue[] {
     }
   }
 
-  // 2. Duplicate tab order values.
-  const byVal = new Map<number, typeof authored>();
-  for (const e of authored) {
-    if (!byVal.has(e.t)) byVal.set(e.t, []);
-    byVal.get(e.t)!.push(e);
-  }
-  for (const [t, group] of byVal) {
-    if (group.length > 1) {
-      issues.push({
-        id: `${p.id}-tab-duplicate-${t}`,
-        category: "tabOrder",
-        severity: "fail",
-        title: `Duplicate tab order value (${t})`,
-        detail: `${group.length} elements share tab order ${t}: ${group.map((g) => describeVisual(g.v)).join("; ")}.`,
-        why: "Duplicate focus indices make keyboard navigation unpredictable  -  screen-reader users may skip or revisit the same content.",
-        fix: "View → Selection Pane → Tab Order. Give each focusable element a unique position in the sequence.",
-        pageId: p.id,
-      });
+  // 2. Duplicate tab order values, scoped to siblings at the same nesting
+  //    level. A value shared between a top-level visual and a visual inside
+  //    a group (or between two different groups) is not a real duplicate to
+  //    a keyboard user - they're never in the same tab-order sequence, since
+  //    Power BI resolves each group's internal tab order independently of
+  //    the page's top-level sequence.
+  const levels = siblingLevels(authored, (e) => e.v.parentGroupId ?? null);
+  for (const [groupId, levelEntries] of levels) {
+    const byVal = new Map<number, typeof authored>();
+    for (const e of levelEntries) {
+      if (!byVal.has(e.t)) byVal.set(e.t, []);
+      byVal.get(e.t)!.push(e);
+    }
+    for (const [t, group] of byVal) {
+      if (group.length > 1) {
+        issues.push({
+          id: `${p.id}-tab-duplicate-${t}${groupId ? `-${groupId}` : ""}`,
+          category: "tabOrder",
+          severity: "fail",
+          title: `Duplicate tab order value (${t})`,
+          detail: `${group.length} elements share tab order ${t}: ${group.map((g) => describeVisual(g.v)).join("; ")}.`,
+          why: "Duplicate focus indices make keyboard navigation unpredictable  -  screen-reader users may skip or revisit the same content.",
+          fix: "View → Selection Pane → Tab Order. Give each focusable element a unique position in the sequence.",
+          pageId: p.id,
+        });
+      }
     }
   }
+
+  // 3. Tab order vs. inferred layout reading order (new, warn-only  -  see
+  //    tabOrderLayoutMismatchIssues doc comment).
+  issues.push(...tabOrderLayoutMismatchIssues(p));
 
   return issues;
 }
@@ -939,19 +1074,12 @@ export function analyze(report: ParsedReport, selection: CheckSelection = ALL_CH
     }
 
     // Clutter should reflect *data visualisations* only  -  exclude shapes,
-    // text/page-title boxes, images, navigation buttons and slicers, which
-    // contribute decoration or controls rather than information density.
-    // We match by substring on the lowercased type so we also catch variants
-    // like "advancedSlicerVisual", "imageVisual", "basicShape", custom
-    // visuals whose id contains "slicer", etc.
-    const NON_DATA_PATTERNS = ["shape", "textbox", "image", "button", "navigator", "slicer"];
-    const NON_DATA_EXACT = new Set(["text", "label", "header", "background"]);
-    const isDataVisual = (v: ParsedVisual) => {
-      const t = (v.type ?? "").toLowerCase().trim();
-      if (!t || t === "unknown") return false;
-      if (NON_DATA_EXACT.has(t)) return false;
-      return !NON_DATA_PATTERNS.some((p) => t.includes(p));
-    };
+    // text/page-title boxes, images, navigation buttons, slicers and visual
+    // groups (see isDataVisual above), which contribute decoration, controls
+    // or pure layout scaffolding rather than information density. We match
+    // by substring on the lowercased type so we also catch variants like
+    // "advancedSlicerVisual", "imageVisual", "basicShape", custom visuals
+    // whose id contains "slicer", etc.
     const dataVisuals = p.visuals.filter(isDataVisual);
     const clutter = clutterIndex(
       p.width,

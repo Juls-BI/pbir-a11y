@@ -41,7 +41,7 @@ const RULE_DOCS: Record<string, { summary: string; wcag?: string }> = {
   },
   tabOrder: {
     summary:
-      "Keyboard tab order must be intentional: no duplicate positions, and decorative elements shouldn't receive focus.",
+      "Keyboard tab order must be intentional: no duplicate positions within the same group/page level, decorative elements shouldn't receive focus, and the authored order should broadly follow the visual layout (advisory only, since only the author knows the intended reading order).",
     wcag: "WCAG 2.4.3",
   },
   targetSize: {

@@ -139,6 +139,14 @@ async function synthesiseLayoutFromSplitFiles(
       };
       visualContainers.push({
         id: v.name ?? vf.name,
+        // The name of the visual-group container this visual sits inside
+        // (Selection pane nesting), e.g. "groupA"  -  present on every real
+        // PBIR visual.json for a grouped child, absent for a top-level
+        // visual or a group container itself. Resolved to a real group id by
+        // extractPage's group-linking pass (see pbixParser.ts); left as the
+        // raw authored name here since this container's own id assignment
+        // (just above) hasn't happened yet for sibling containers.
+        parentGroupName: v.parentGroupName ?? null,
         x: Number(pos.x ?? 0),
         y: Number(pos.y ?? 0),
         z: Number(pos.z ?? 0),
@@ -146,7 +154,7 @@ async function synthesiseLayoutFromSplitFiles(
         height: Number(pos.height ?? 0),
         tabOrder,
         rawVisual: v,
-        // The PBIX parser expects `config` to be a JSON string OR object  - 
+        // The PBIX parser expects `config` to be a JSON string OR object  -
         // expand() handles both. Pass an object directly for safety.
         config: { name: single.name, singleVisual: single, rawVisual: v },
       });

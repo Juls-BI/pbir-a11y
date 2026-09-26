@@ -51,8 +51,41 @@ export interface ParsedVisual {
    */
   tabOrder: number | null;
   /** Normalised authored tab position. Hidden visuals are represented by
-   *  isHiddenFromTabOrder=true and tabOrderIndex=null, not as an authored index. */
+   *  isHiddenFromTabOrder=true and tabOrderIndex=null, not as an authored index.
+   *
+   *  IMPORTANT - this field means two DIFFERENT things depending on whether
+   *  normalisePowerBiLayoutTabOrder (below) fired for this page:
+   *   - Usually (raw values NOT all non-negative multiples of 1000): this is
+   *     the untouched raw authored value, where empirically a HIGHER number
+   *     is EARLIER in the tab sequence (confirmed against a real PBIP page
+   *     authored 25/20/15/10/5/0, in that tab-sequence order).
+   *   - When normalisePowerBiLayoutTabOrder's narrow heuristic fires (all
+   *     authored values on the page are unique, non-negative, multiples of
+   *     1000, matching the pattern PBIR appears to use for group-internal
+   *     tabOrder): this has been REWRITTEN to a 1..N rank where 1 = the
+   *     visual with the LARGEST raw value (i.e. rank 1 = first), which is
+   *     ASCENDING - the opposite comparison direction from the usual case.
+   *  Nothing downstream can tell which of the two it's looking at from the
+   *  number alone, so do not compare this field directly to build an
+   *  authored order - use tabOrderRank instead, which is always the same
+   *  direction regardless of which case applies. This field, and
+   *  normalisePowerBiLayoutTabOrder itself, are left exactly as they were:
+   *  every existing consumer (including anything that displays a raw tab
+   *  order value to the user) keeps behaving exactly as before. */
   tabOrderIndex: number | null;
+  /** The visual's position in the true authored tab sequence: 1 = first, 2 =
+   *  second, etc. Unlike tabOrderIndex, this is ALWAYS "ascending, 1 =
+   *  first" - regardless of whether normalisePowerBiLayoutTabOrder fired for
+   *  this page - so any code that needs to know the real authored order
+   *  should sort by this field, ascending, and never by tabOrderIndex.
+   *  Computed once per page (see assignTabOrderRanks below) from every
+   *  non-hidden, tabOrder-authored visual's UNTOUCHED raw tabOrder value, by
+   *  sorting descending (largest raw value = rank 1) and numbering 1..N -
+   *  deliberately computed from the pristine raw value, before
+   *  normalisePowerBiLayoutTabOrder has a chance to rewrite tabOrderIndex,
+   *  so it means the same thing whether or not that function ends up
+   *  firing. Null for a hidden or unauthored (tabOrderIndex == null) visual. */
+  tabOrderRank: number | null;
   /** True only when Power BI explicitly marks the visual as excluded from the
    *  Selection pane tab sequence. This is distinct from an unset tab order. */
   isHiddenFromTabOrder: boolean;
@@ -63,6 +96,14 @@ export interface ParsedVisual {
    *  name (Selection pane label), e.g. "Regional KPIs". Null for every other
    *  visual type, and for a group whose name was never set. */
   groupDisplayName: string | null;
+  /** The `id` of the visual-group container this visual is nested inside
+   *  (Selection pane grouping), or null when the visual sits directly on the
+   *  page. Populated from PBIR's `parentGroupName` (see pbirParser.ts); a
+   *  visual group container can itself be nested inside another group, so
+   *  this forms a chain, not just one level. Currently only populated for
+   *  PBIR (PBIP) projects - the legacy .pbix Layout code path does not
+   *  resolve group nesting, so this is always null there. */
+  parentGroupId: string | null;
   rawObjects?: any;
 }
 
@@ -708,8 +749,93 @@ function extractVisual(visualContainer: any, idx: number): ParsedVisual {
     isHiddenFromTabOrder: tabOrderState.isHiddenFromTabOrder,
     isDecorative,
     groupDisplayName,
+    // Resolved to a real group id (or left null) by extractPage's group-
+    // linking pass below, once every container's own id is known - a raw
+    // visualContainer only carries the *name* it was authored under
+    // (`parentGroupName`), not the id extractVisual assigns above.
+    parentGroupId: null,
+    // Filled in by assignTabOrderRanks, called by extractPage on this whole
+    // page's freshly-extracted visuals, before anything else (including
+    // normalisePowerBiLayoutTabOrder) has a chance to touch tabOrderIndex.
+    tabOrderRank: null,
     rawObjects: { objects, vcObjects, config: cfg, visualContainer },
   };
+}
+
+/**
+ * Computes `tabOrderRank` for every non-hidden, tabOrder-authored visual on a
+ * page, in one whole-page pass: sort descending by the visual's UNTOUCHED raw
+ * tabOrderIndex (largest raw value = rank 1, per the confirmed real-world
+ * rule "a higher raw tabOrder value is earlier in the tab sequence" - see the
+ * doc comment on ParsedVisual.tabOrderRank), and number the result 1..N.
+ * Must run before normalisePowerBiLayoutTabOrder, which mutates
+ * tabOrder/tabOrderIndex under a separate, narrower heuristic - this function
+ * and that one are intentionally independent, so tabOrderRank means the same
+ * thing ("1 = first") whether or not that later step ends up firing.
+ * A visual with no rank (hidden, or no authored tabOrder) is returned
+ * unchanged, with tabOrderRank left at whatever it already was (null, coming
+ * out of extractVisual).
+ */
+export function assignTabOrderRanks(visuals: ParsedVisual[]): ParsedVisual[] {
+  const rankedIds = visuals
+    .filter((v) => !v.isHiddenFromTabOrder && v.tabOrderIndex != null)
+    .sort((a, b) => (b.tabOrderIndex as number) - (a.tabOrderIndex as number))
+    .map((v) => v.id);
+  const rankById = new Map<string, number>(rankedIds.map((id, i) => [id, i + 1]));
+  return visuals.map((v) => {
+    const rank = rankById.get(v.id);
+    return rank != null ? { ...v, tabOrderRank: rank } : v;
+  });
+}
+
+/**
+ * Resolves every visual's `x`/`y` from group-relative to page-absolute, by
+ * walking each visual's `parentGroupId` chain and summing each ancestor
+ * group's own (already-resolved) position. A visual with no parentGroupId is
+ * already page-absolute and is returned unchanged. Handles arbitrary nesting
+ * depth (a group inside a group) and is defensive against a cyclic parent
+ * chain, which should never occur but would otherwise recurse forever.
+ *
+ * Nothing downstream is expected to want the pre-resolution, group-relative
+ * x/y, so this overwrites x/y in place (on new visual objects) rather than
+ * adding separate "absolute" fields - every rule that reads v.x/v.y
+ * (clutter, tab order, target size, ...) automatically gets correct,
+ * page-absolute coordinates. Do not "fix" x/y back to group-relative later:
+ * post-resolution, x/y are always page-absolute.
+ */
+export function resolveAbsolutePositions(visuals: ParsedVisual[]): ParsedVisual[] {
+  const byId = new Map(visuals.map((v) => [v.id, v] as const));
+  const resolvedX = new Map<string, number>();
+  const resolvedY = new Map<string, number>();
+  const inProgress = new Set<string>();
+
+  function resolve(v: ParsedVisual): { x: number; y: number } {
+    const cached = resolvedX.has(v.id) ? { x: resolvedX.get(v.id)!, y: resolvedY.get(v.id)! } : null;
+    if (cached) return cached;
+    const parent = v.parentGroupId != null ? byId.get(v.parentGroupId) : undefined;
+    // No parent, parent not found (e.g. parentGroupName referenced a group
+    // that doesn't exist on this page), or a cycle  ->  treat x/y as already
+    // page-absolute.
+    if (!parent || inProgress.has(v.id)) {
+      resolvedX.set(v.id, v.x);
+      resolvedY.set(v.id, v.y);
+      return { x: v.x, y: v.y };
+    }
+    inProgress.add(v.id);
+    const parentAbs = resolve(parent);
+    const x = parentAbs.x + v.x;
+    const y = parentAbs.y + v.y;
+    inProgress.delete(v.id);
+    resolvedX.set(v.id, x);
+    resolvedY.set(v.id, y);
+    return { x, y };
+  }
+
+  return visuals.map((v) => {
+    const { x, y } = resolve(v);
+    if (x === v.x && y === v.y) return v;
+    return { ...v, x, y };
+  });
 }
 
 export function extractPage(section: any, canvasW: number, canvasH: number): ParsedPage {
@@ -737,6 +863,45 @@ export function extractPage(section: any, canvasW: number, canvasH: number): Par
     }
   }
 
+  // Explicitly typed (rather than left to inference) because `visualContainers`
+  // is `any` (it comes from a `section: any` input) - without this annotation
+  // every array method called on the result below would itself type as `any`
+  // and their callback parameters would trip noImplicitAny.
+  const extractedVisuals: ParsedVisual[] = visualContainers.map((vc: any, i: number) => extractVisual(vc, i));
+
+  // tabOrderRank must be computed from the pristine, just-extracted raw
+  // tabOrderIndex values, in one whole-page pass, before anything below
+  // (notably normalisePowerBiLayoutTabOrder, at the very end of this
+  // function) gets a chance to rewrite tabOrderIndex under its own, narrower
+  // heuristic. Order/indices are preserved 1:1, so `visualContainers[i]`
+  // below still lines up with `rankedVisuals[i]`.
+  const rankedVisuals = assignTabOrderRanks(extractedVisuals);
+
+  // Link each visual to the id of the group container it's nested inside, by
+  // name: PBIR stores nesting as `parentGroupName` on the child (carried
+  // through onto the raw visualContainer by the object spread above, for
+  // both the modern split-file PBIR path and a hypothetical legacy layout
+  // that used the same field), which names the *authoring* name of the
+  // parent group container (its own `name`), not the id extractVisual
+  // assigns. Build a name -> id lookup from every visualGroup container on
+  // this page, then resolve every child's parentGroupId against it. A
+  // parentGroupName with no matching group on this page (e.g. a stale/
+  // malformed reference) resolves to null rather than throwing, so a single
+  // bad reference degrades to "treat as top-level" instead of failing parse.
+  const groupIdByName = new Map<string, string>();
+  rankedVisuals.forEach((v, i) => {
+    if (String(v.type).toLowerCase() === "visualgroup") {
+      const rawName = String(visualContainers[i]?.name ?? v.name);
+      groupIdByName.set(rawName, v.id);
+    }
+  });
+  const linkedVisuals = rankedVisuals.map((v, i) => {
+    const rawParentName = visualContainers[i]?.parentGroupName;
+    if (rawParentName == null) return v;
+    const parentGroupId = groupIdByName.get(String(rawParentName)) ?? null;
+    return parentGroupId ? { ...v, parentGroupId } : v;
+  });
+
   return {
     id: String(section.name ?? section.id ?? "page"),
     name: String(section.name ?? "page"),
@@ -745,7 +910,7 @@ export function extractPage(section: any, canvasW: number, canvasH: number): Par
     height: pageH,
     hidden: Boolean(cfg?.visibility === 1 || section.visibility === 1),
     pageTitleVisible,
-    visuals: normalisePowerBiLayoutTabOrder(visualContainers.map((vc: any, i: number) => extractVisual(vc, i))),
+    visuals: normalisePowerBiLayoutTabOrder(resolveAbsolutePositions(linkedVisuals)),
   };
 }
 
