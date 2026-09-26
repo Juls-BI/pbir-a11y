@@ -57,7 +57,7 @@ call it.
 ### Accessible by default, not just audited at the end
 
 `pbir-a11y` is read-only, so on its own it can only tell you about problems
-after they exist — it can't build a report or write alt text. To get reports
+after they exist  -  it can't build a report or write alt text. To get reports
 that are accessible *as you build them*, pair it with a report-authoring
 tool or skill (e.g. [`pbir.tools`](https://github.com/maxanatsko/pbir.tools),
 or a Power BI agentic-development plugin) and chain the two: the authoring
@@ -70,7 +70,7 @@ The skill (`skills/pbir-a11y/SKILL.md`) already nudges an agent toward this
 loop when an authoring tool is also active in the session. If you want it
 spelled out explicitly and consistently for your project regardless of
 which agent or authoring tool you're using, copy the relevant block from
-[`examples/CLAUDE.md`](./examples/CLAUDE.md) into your PBIP project root —
+[`examples/CLAUDE.md`](./examples/CLAUDE.md) into your PBIP project root  -
 it includes both a generic version (for `pbir.tools` or similar) and a
 version specific to Microsoft's `powerbi-report-design` +
 `powerbi-report-authoring` skills from Skills for Fabric, which spells out
@@ -172,7 +172,7 @@ across unchanged except where noted below:
 | File | Status |
 |---|---|
 | `contrastUtils.ts`, `apca.ts`, `colourblindUtils.ts`, `contrastSuggest.ts`, `fontScaling.ts`, `clutterIndex.ts`, `customVisuals.ts` | **Unchanged.** Pure logic, no browser dependency. |
-| `rulesEngine.ts`, `pbixParser.ts` | **Extended for visual-group support.** `pbixParser.ts` now parses and forwards a group's `groupDisplayName`; `rulesEngine.ts` uses it to describe groups in messages, gives groups the same `altText` presence/placeholder checks as any other visual (Desktop does offer groups a static alt-text field), and flags a group left with no name or Power BI's default name. No existing rule's logic or output changed for non-group visuals. |
+| `rulesEngine.ts`, `pbixParser.ts` | **Extended for visual-group support, then further extended for group-scoped tab order and clutter.** `pbixParser.ts` parses and forwards a group's `groupDisplayName`, resolves each visual's `parentGroupId` (which group it sits inside, PBIR only), converts group-relative `x`/`y` into page-absolute coordinates via `resolveAbsolutePositions`, and computes a direction-safe `tabOrderRank` (1 = first, always ascending) from the raw authored tab order before Power BI's own quirky renumbering of large flat tab-order values can touch it. `rulesEngine.ts` uses `groupDisplayName` to describe groups in messages and gives groups the same `altText` presence/placeholder checks as any other visual (Desktop does offer groups a static alt-text field, and flags a group left with no name or Power BI's default name); it also scopes duplicate-tab-order detection to each sibling level (a page's top level, and each group's children, independently of each other) instead of comparing every visual on the page against every other, excludes a group's own bounding box from the clutter visual count and overlap checks (a group's box fully contains its children's, so counting it too would double-count), and adds a new advisory finding, "tab order may not follow the layout", comparing the authored tab sequence against a layout-inferred one for each sibling level. Reports with no visual groups see no change in output; a grouped report's `tabOrder` and `clutter` results can differ from before this change  -  correctly, since the earlier version didn't account for grouping at all. |
 | `pbirParser.ts` | **Lightly refactored.** The original `parsePbir(file: File)` only ever loaded a zip via a browser file-drop. It's now split into `parsePbir(file: File)` (unchanged, still there for anything browser-based) and a new `parsePbirFromZip(zip, name, size)` that takes an already-built JSZip instance. `parsePbir` calls `parsePbirFromZip` internally: no rule logic changed, only where the zip gets built. |
 
 Everything under `src/io/` and `src/commands/`, plus `src/cli.ts`, is new, as
@@ -212,7 +212,7 @@ npm run coverage   # Test run with a line-coverage gate, scoped to src/lib/**
 ```
 
 `src/lib/*` is the ported rule engine (see the table above for what's
-changed vs. untouched within it) — `lint` and the file-size guideline
+changed vs. untouched within it)  -  `lint` and the file-size guideline
 don't apply to it, and `npm run coverage`'s line-coverage gate is scoped
 specifically to it, not excluded from it.
 
