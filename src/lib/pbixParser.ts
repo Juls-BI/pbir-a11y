@@ -374,13 +374,11 @@ function extractTabOrderState(...sources: any[]): { tabOrderIndex: number | null
   for (const source of sources) {
     if (source == null) continue;
     if (typeof source === "number") {
-      // Only the documented legacy sentinel (-1) means "explicitly hidden
-      // from tab order". Modern PBIR position.tabOrder can legitimately hold
-      // large or unusual values (e.g. a shape inserted before any manual
-      // reordering can carry a large negative default) that are still real,
-      // active positions in the tab sequence  -  they must not be silently
-      // treated as hidden, or decorative-but-focusable elements go undetected.
-      if (source === -1) return { tabOrderIndex: null, isHiddenFromTabOrder: true };
+      // Any negative value means "hidden from tab order" (Selection pane →
+      // "-"). Legacy reports use -1; PBIR writes the visual's former
+      // position negated (e.g. -1001, -3001) when it is hidden, so checking
+      // only for -1 would misreport hidden decorative elements as focusable.
+      if (source < 0) return { tabOrderIndex: null, isHiddenFromTabOrder: true };
       return { tabOrderIndex: Math.round(source), isHiddenFromTabOrder: false };
     }
     if (typeof source === "string") {
@@ -390,12 +388,12 @@ function extractTabOrderState(...sources: any[]): { tabOrderIndex: number | null
       }
       const parsed = Number(value);
       if (Number.isFinite(parsed)) {
-        if (parsed === -1) return { tabOrderIndex: null, isHiddenFromTabOrder: true };
+        if (parsed < 0) return { tabOrderIndex: null, isHiddenFromTabOrder: true };
         return { tabOrderIndex: Math.round(parsed), isHiddenFromTabOrder: false };
       }
       const cleaned = Number(value.replace(/[^\d.\-]/g, ""));
       if (Number.isFinite(cleaned)) {
-        if (cleaned === -1) return { tabOrderIndex: null, isHiddenFromTabOrder: true };
+        if (cleaned < 0) return { tabOrderIndex: null, isHiddenFromTabOrder: true };
         return { tabOrderIndex: Math.round(cleaned), isHiddenFromTabOrder: false };
       }
     }
